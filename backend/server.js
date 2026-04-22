@@ -5,19 +5,19 @@ const rateLimit = require("express-rate-limit");
 const Groq = require("groq-sdk");
 const mongoose = require("mongoose");
 const { v4: uuidv4 } = require("uuid");
-require("dotenv").config();
+const dotenv = require("dotenv");
+dotenv.config();
 
 // ─── INIT ────────────────────────────────────────────────────────────────────
 const app = express();
 const PORT = process.env.PORT || 5000;
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // ─── MIDDLEWARE ───────────────────────────────────────────────────────────────
 app.use(helmet());
 app.use(cors({
   origin: process.env.FRONTEND_URL || "*",
   methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 }));
 app.use(express.json({ limit: "10kb" }));
 
@@ -133,7 +133,8 @@ Respond ONLY with valid JSON in EXACTLY this format (no markdown, no explanation
 }
 
 // ─── GROQ API CALL ────────────────────────────────────────────────────────────
-async function generateDietPlan(userData) {
+async function generateDietPlan(userData, apiKey) {
+  const groq = new Groq({ apiKey });
   const prompt = buildPrompt(userData);
 
   const completion = await groq.chat.completions.create({
@@ -176,6 +177,11 @@ app.get("/health", (req, res) => {
 // Main endpoint
 app.post("/generate-diet", async (req, res) => {
   try {
+    const apiKey = req.headers.authorization?.split(" ")[1];
+    if (!apiKey) {
+      return res.status(401).json({ error: "API key missing" });
+    }
+
     const { name, age, weight, height, goal, diet_type, allergies, activity_level } = req.body;
 
     // Sanitise inputs
@@ -198,7 +204,7 @@ app.post("/generate-diet", async (req, res) => {
 
     // Generate diet plan via Groq
     console.log(`🍽️  Generating plan for ${sanitised.name} (${sanitised.goal}, ${sanitised.diet_type})`);
-    const planData = await generateDietPlan(sanitised);
+    const planData = await generateDietPlan(sanitised, apiKey);
 
     const planId = uuidv4();
     const result = { planId, ...planData };
@@ -219,13 +225,13 @@ app.post("/generate-diet", async (req, res) => {
     console.error("❌ Error generating diet plan:", err.message);
 
     if (err.message.includes("API key")) {
-      return res.status(500).json({ error: "Invalid Groq API key. Check your .env configuration." });
+      return res.status(401).json({ error: "Invalid Groq API key." });
     }
     if (err.message.includes("rate_limit")) {
       return res.status(429).json({ error: "Groq API rate limit reached. Please wait a minute and try again." });
     }
 
-    return res.status(500).json({ error: err.message || "Internal server error. Please try again." });
+    return res.status(500).json({ error: "Internal server error. Please try again." });
   }
 });
 
