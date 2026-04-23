@@ -133,8 +133,7 @@ Respond ONLY with valid JSON in EXACTLY this format (no markdown, no explanation
 }
 
 // ─── GROQ API CALL ────────────────────────────────────────────────────────────
-async function generateDietPlan(userData, apiKey) {
-  const groq = new Groq({ apiKey });
+async function generateDietPlan(userData, groq) {
   const prompt = buildPrompt(userData);
 
   const completion = await groq.chat.completions.create({
@@ -181,6 +180,7 @@ app.post("/generate-diet", async (req, res) => {
     if (!apiKey) {
       return res.status(401).json({ error: "API key missing" });
     }
+    const groq = new Groq({ apiKey });
 
     const { name, age, weight, height, goal, diet_type, allergies, activity_level } = req.body;
 
@@ -204,7 +204,7 @@ app.post("/generate-diet", async (req, res) => {
 
     // Generate diet plan via Groq
     console.log(`🍽️  Generating plan for ${sanitised.name} (${sanitised.goal}, ${sanitised.diet_type})`);
-    const planData = await generateDietPlan(sanitised, apiKey);
+    const planData = await generateDietPlan(sanitised, groq);
 
     const planId = uuidv4();
     const result = { planId, ...planData };
@@ -222,16 +222,8 @@ app.post("/generate-diet", async (req, res) => {
     return res.status(200).json(result);
 
   } catch (err) {
-    console.error("❌ Error generating diet plan:", err.message);
-
-    if (err.message.includes("API key")) {
-      return res.status(401).json({ error: "Invalid Groq API key." });
-    }
-    if (err.message.includes("rate_limit")) {
-      return res.status(429).json({ error: "Groq API rate limit reached. Please wait a minute and try again." });
-    }
-
-    return res.status(500).json({ error: "Internal server error. Please try again." });
+    console.error("ERROR:", err);
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
